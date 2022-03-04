@@ -1,0 +1,8 @@
+{
+  "motd": "trash reverse proxy",
+  "backend_port": 25565,
+  "whitelist": [
+    { "name": "metamuffin", "token": "hTsB2ECVrC6AgQaE" },
+    { "name": "69_owo" }
+  ]
+}
