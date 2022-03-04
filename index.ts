@@ -3,100 +3,110 @@ import { states, createServer, createClient, Client, ServerClient, ServerOptions
 export interface Config {
     motd: string,
     backend_port: number,
+    offline_port: number,
+    online_port: number,
     version: string
     whitelist: { name: string, token?: string }[]
 }
 const config = require("./config.json") as Config
 
-const connectionOptions = {
+const connection_options = {
     host: "127.0.0.1",
     port: config.backend_port,
     version: config.version,
 }
 
-const ChatMessage = require('prismarine-chat')(connectionOptions.version)
-const { MessageBuilder } = require('prismarine-chat')(connectionOptions.version)
-const mcData = require('minecraft-data')(connectionOptions.version)
+const ChatMessage = require('prismarine-chat')(connection_options.version)
+const { MessageBuilder } = require('prismarine-chat')(connection_options.version)
+const mcData = require('minecraft-data')(connection_options.version)
 
 console.log("starting");
+
+export type AuthMethod = "online" | "offline"
+export interface ClientData { auth: AuthMethod }
+const clients: Map<string, ClientData> = new Map()
 
 const server_options: ServerOptions = {
     host: "0.0.0.0",
     keepAlive: false,
     version: "1.18.1",
     maxPlayers: 1,
-    beforePing: function (response, client) {
-        response.players.online = Math.floor(Math.random() * 1000);
-        response.players.max = Math.floor(Math.random() * 1000);
+    beforePing: (response, client) => {
+        response.players.online = clients.size;
+        response.players.max = -Math.floor(Math.random() * 10000);
     },
 }
 
 const offline_server = createServer({
     ...server_options,
-    port: 25566,
-    motd: config.motd + "(token auth)",
+    port: config.offline_port,
+    motd: config.motd + " (offline auth)",
     'online-mode': false,
 })
 
 const online_server = createServer({
     ...server_options,
-    port: 25567,
-    motd: config.motd + "(mojang/microsoft auth)",
+    port: config.online_port,
+    motd: config.motd + " (online auth)",
     'online-mode': true,
 })
-
 
 offline_server.on('listening', () => console.log(`offline server listening`))
 online_server.on('listening', () => console.log(`online server listening`))
 
-offline_server.on('login', c => login_handler(c, false))
-online_server.on('login', c => login_handler(c, true))
+offline_server.on('login', c => login_handler(c, "offline"))
+online_server.on('login', c => login_handler(c, "online"))
 
-function login_handler(client: Client, online: boolean) {
+function login_handler(client: Client, auth: AuthMethod) {
     const addr = client.socket.remoteAddress
-    let endedClient = false
-    let endedTargetClient = false
-    console.log(`Incoming connection ${addr}`)
+    let ended_client = false
+    let ended_target_client = false
+    let started_client = false
 
-    client.on('end', function () {
-        endedClient = true
-        console.log(`Connection closed by client ${addr}`)
-        if (!endedTargetClient) { targetClient.end('End') }
+    console.log(`incomming connection from ${addr} via ${auth} auth`)
+
+    client.on('end', () => {
+        ended_client = true
+        console.log(`connection closed by client ${addr}`)
+        if (!ended_target_client && started_client) { target_client.end('End') }
     })
 
-    client.on('error', function (err) {
-        endedClient = true
-        console.log(`Connection error by client ${addr}`)
+    client.on('error', (err) => {
+        ended_client = true
+        console.log(`connection error by client ${addr}`)
         console.log(err.stack)
-        if (!endedTargetClient) { targetClient.end('Error') }
+        if (!ended_target_client && started_client) { target_client.end('Error') }
     })
 
     let username = client.username
-    if (!online) {
+    if (auth == "online") {
+        chat_log(client, "online auth successful")
+    } else {
         const kl = offline_auth(username)
         if (!kl) return client.end("auth failed")
         chat_log(client, "offline auth successful")
         username = kl
-    } else {
-        chat_log(client, "online auth successful")
     }
 
-    const targetClient = createClient({
-        ...connectionOptions,
+    clients.set(username, { auth })
+
+    const target_client = createClient({
+        ...connection_options,
         username,
         keepAlive: false,
         skipValidation: true
     })
+    started_client = true
 
-    targetClient.on('connect', () => {
+    target_client.on('connect', () => {
         //@ts-ignore
-        let username = targetClient.username
-        console.log(`Connected client ${addr} to ${connectionOptions.host} as ${username}`)
+        let username = target_client.username
+        chat_log(client, `you have been connected as "${username}"`)
     })
 
     client.on('packet', (data, meta) => {
-        if (targetClient.state === states.PLAY && meta.state === states.PLAY) {
-            if (!endedTargetClient) {
+        if (target_client.state === states.PLAY && meta.state === states.PLAY) {
+            if (!ended_target_client) {
                 if (meta.name === 'chat') {
                     let message: string = data.message
                     if (message.startsWith("@")) {
@@ -104,14 +114,14 @@ function login_handler(client: Client, online: boolean) {
                         return
                     }
                 }
-                targetClient.write(meta.name, data)
+                target_client.write(meta.name, data)
             }
         }
     })
 
-    targetClient.on('packet', function (data, meta) {
+    target_client.on('packet', function (data, meta) {
         if (!(meta.state === states.PLAY && client.state === states.PLAY)) { return }
-        if (endedClient) { return }
+        if (ended_client) { return }
 
         client.write(meta.name, data)
 
@@ -129,25 +139,27 @@ function login_handler(client: Client, online: boolean) {
 
 
 
-    targetClient.on('raw', function (buffer, meta) {
+    target_client.on('raw', (buffer, meta) => {
         if (client.state !== states.PLAY || meta.state !== states.PLAY) { return }
     })
 
-    client.on('raw', function (buffer, meta) {
+    client.on('raw', (buffer, meta) => {
         if (meta.state !== states.PLAY || meta.state !== states.PLAY) { return }
     })
 
-    targetClient.on('end', function () {
-        endedTargetClient = true
+    target_client.on('end', () => {
+        ended_target_client = true
+        clients.delete(username)
         console.log(`Connection closed by server ${addr}`)
-        if (!endedClient) { client.end('End') }
+        if (!ended_client) { client.end('End') }
     })
 
-    targetClient.on('error', function (err) {
-        endedTargetClient = true
+    target_client.on('error', (err) => {
+        ended_target_client = true
+        clients.delete(username)
         console.log(`Connection error by server ${addr}`)
         console.log(err.stack)
-        if (!endedClient) { client.end('Error') }
+        if (!ended_client) { client.end('Error') }
     })
 }
 
@@ -158,6 +170,8 @@ function chat_log(c: Client, m: string) {
 
 // converts login username to proxied username or rejects
 function offline_auth(username: string): string | undefined {
-    if (username == "metamuffin") return "user"
+    for (const w of config.whitelist) {
+        if (w.token == username) return w.name
+    }
     return undefined
 }
