@@ -57,13 +57,13 @@ online_server.on('listening', () => console.log(`online server listening`))
 offline_server.on('login', c => login_handler(c, "offline"))
 online_server.on('login', c => login_handler(c, "online"))
 
-function login_handler(client: Client, auth: AuthMethod) {
+function login_handler(client: Client, auth_method: AuthMethod) {
     const addr = client.socket.remoteAddress
     let ended_client = false
     let ended_target_client = false
     let started_client = false
 
-    console.log(`incomming connection from ${addr} via ${auth} auth`)
+    console.log(`incomming connection from ${addr} via ${auth_method} auth`)
 
     client.on('end', () => {
         ended_client = true
@@ -78,17 +78,9 @@ function login_handler(client: Client, auth: AuthMethod) {
         if (!ended_target_client && started_client) { target_client.end('Error') }
     })
 
-    let username = client.username
-    if (auth == "online") {
-        chat_log(client, "online auth successful")
-    } else {
-        const kl = offline_auth(username)
-        if (!kl) return client.end("auth failed")
-        chat_log(client, "offline auth successful")
-        username = kl
-    }
-
-    clients.set(username, { auth })
+    const username = auth(client, auth_method)
+    if (!username) return client.end("auth failed")
+    clients.set(username, { auth: auth_method })
 
     const target_client = createClient({
         ...connection_options,
@@ -169,9 +161,14 @@ function chat_log(c: Client, m: string) {
 }
 
 // converts login username to proxied username or rejects
-function offline_auth(username: string): string | undefined {
+function auth(client: Client, method: AuthMethod): string | undefined {
     for (const w of config.whitelist) {
-        if (w.token == username) return w.name
+        if (w.token == client.username) {
+            chat_log(client, "offline auth successful")
+            return w.name
+        }
+        if (method == "online" && w.name == client.username) {
+            chat_log(client, "online auth successful")
+        }
     }
-    return undefined
 }
