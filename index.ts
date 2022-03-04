@@ -101,9 +101,15 @@ function login_handler(client: Client, auth_method: AuthMethod) {
             if (!ended_target_client) {
                 if (meta.name === 'chat') {
                     let message: string = data.message
-                    if (message.startsWith("@")) {
-                        chat_log(client, message.substring(1))
-                        return
+                    if (message.startsWith("@@")) {
+                        const [command, ...args] = message.substring("@@".length).split(" ")
+                        if (!command?.length) return
+                        if (command == "info") {
+                            const info = clients.get(args[0])
+                            if (!info) return chat_log(client, "unknown")
+                            chat_log(client, `auth method: ${info.auth}`)
+                            return
+                        } else return chat_log(client, "unknown command")
                     }
                 }
                 target_client.write(meta.name, data)
