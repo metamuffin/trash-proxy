@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "@types/node": "^17.0.21",
+    "minecraft-data": "^2.114.1",
     "minecraft-protocol": "^1.31.0",
     "prismarine-chat": "^1.6.0"
   }
