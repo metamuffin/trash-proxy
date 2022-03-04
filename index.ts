@@ -162,13 +162,17 @@ function chat_log(c: Client, m: string) {
 
 // converts login username to proxied username or rejects
 function auth(client: Client, method: AuthMethod): string | undefined {
+    console.log(`auth for ${client.username}`);
     for (const w of config.whitelist) {
         if (w.token == client.username) {
             chat_log(client, "offline auth successful")
+            console.log(`auth success (offline)`);
             return w.name
         }
         if (method == "online" && w.name == client.username) {
             chat_log(client, "online auth successful")
+            console.log(`auth success (online)`);
+            return w.name
         }
     }
 }
