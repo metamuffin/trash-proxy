@@ -15,19 +15,24 @@ function java_nameUUIDFromBytes(input: any) {
 }
 
 
-async function uuid_to_online_name(uuid: string): Promise<string> {
-    const res = await require("node-fetch")(`https://api.mojang.com/user/profiles/${encodeURIComponent(uuid)}/names`)
-    if (!res.ok) throw new Error("mojang api broken");
-    const j = JSON.parse(await res.text())
-    return j[j.length - 1].name
+async function uuid_to_online_name(uuid: string): Promise<string | undefined> {
+    try {
+        const res = await require("node-fetch")(`https://api.mojang.com/user/profiles/${encodeURIComponent(uuid)}/names`)
+        if (!res.ok) throw new Error("mojang api broken");
+        const j = JSON.parse(await res.text())
+        return j[j.length - 1].name
+    } catch (e) {
+        return undefined
+    }
 }
 
 function name_to_offline_uuid(name: string): string {
     return java_nameUUIDFromBytes(Buffer.from(`OfflinePlayer:${name}`, "utf8"))
 }
 
-async function migrate_uuid(uuid: string): Promise<string> {
+async function migrate_uuid(uuid: string): Promise<string | undefined> {
     const name = await uuid_to_online_name(uuid)
+    if (!name) return
     const new_uuid = name_to_offline_uuid(name)
     console.log(`${uuid} -> ${name.padEnd(15)} -> ${new_uuid}`);
     return new_uuid
@@ -40,6 +45,7 @@ async function main() {
         if (!e.endsWith(".dat")) continue
         const uuid = e.substring(0, e.length - ".dat".length)
         const new_uuid = await migrate_uuid(uuid)
+        if (!new_uuid) console.log(`migration failed for ${uuid}`);
         const new_e = `${new_uuid}.dat`
         await rename(join(path_playerdata, e), join(path_playerdata, new_e))
     }
