@@ -1,24 +1,48 @@
+import { readFile, watch } from 'fs/promises'
 import { states, createServer, createClient, Client, ServerClient, ServerOptions } from 'minecraft-protocol'
 
 export interface Config {
     motd: string,
+    favicon?: string,
+    favicon_path?: string,
+    max_players?: number
     backend_port: number,
     offline_port: number,
     online_port: number,
     version: string
     whitelist: { name: string, token?: string }[]
 }
-const config = require("./config.json") as Config
+let config = require("./config.json") as Config
+load_favicon()
 
-const connection_options = {
-    host: "127.0.0.1",
-    port: config.backend_port,
-    version: config.version,
+async function load_favicon() {
+    try {
+        if (config.favicon_path) config.favicon = `data:image/png;base64,${((await readFile(config.favicon_path)).toString("base64"))}`
+    } catch (e) {
+        console.log("favicon load failed");
+    }
 }
 
-const ChatMessage = require('prismarine-chat')(connection_options.version)
-const { MessageBuilder } = require('prismarine-chat')(connection_options.version)
-const mcData = require('minecraft-data')(connection_options.version)
+async function config_watcher() {
+    const w = watch(".", { recursive: false })
+    for await (const ev of w) {
+        if (ev.eventType == "change") {
+            try {
+                config = JSON.parse((await readFile("./config.json")).toString())
+                console.log("config reloaded");
+            } catch (e) {
+                console.log("config reload failed. invalid");
+            }
+            await load_favicon()
+        }
+    }
+}
+config_watcher()
+
+
+const ChatMessage = require('prismarine-chat')(config.version)
+const { MessageBuilder } = require('prismarine-chat')(config.version)
+const mcData = require('minecraft-data')(config.version)
 
 console.log("starting");
 
@@ -31,9 +55,11 @@ const server_options: ServerOptions = {
     keepAlive: false,
     version: "1.18.1",
     maxPlayers: 1,
-    beforePing: (response, client) => {
+    beforePing: response => {
         response.players.online = clients.size;
-        response.players.max = -Math.floor(Math.random() * 10000);
+        response.players.max = config.max_players ?? -Math.floor(Math.random() * 10000);
+        response.sample = [...clients.keys()]
+        response.favicon = config.favicon
     },
 }
 
@@ -83,7 +109,9 @@ function login_handler(client: Client, auth_method: AuthMethod) {
     clients.set(username, { auth: auth_method })
 
     const target_client = createClient({
-        ...connection_options,
+        host: "127.0.0.1",
+        port: config.backend_port,
+        version: config.version,
         username,
         keepAlive: false,
         skipValidation: true
@@ -182,3 +210,4 @@ function auth(client: Client, method: AuthMethod): string | undefined {
         }
     }
 }
+
