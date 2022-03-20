@@ -7,6 +7,7 @@ export interface Config {
     favicon_path?: string,
     max_players?: number
     backend_port: number,
+    backend_host?: string,
     offline_port: number,
     online_port: number,
     version: string
@@ -109,7 +110,7 @@ function login_handler(client: Client, auth_method: AuthMethod) {
     clients.set(username, { auth: auth_method })
 
     const target_client = createClient({
-        host: "127.0.0.1",
+        host: config.backend_host ?? "127.0.0.1",
         port: config.backend_port,
         version: config.version,
         username,
